@@ -1,0 +1,40 @@
+{
+  "name": "@shubhambattoo/look-see",
+  "version": "0.2.1",
+  "description": "Look-See scans locked project dependencies for known vulnerabilities",
+  "author": "shubhambattoo",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "look-see": "./bin/look-see.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "start": "node ./bin/look-see.js",
+    "prepublishOnly": "npm test"
+  },
+  "dependencies": {
+    "@yarnpkg/lockfile": "^1.1.0",
+    "chalk": "^6.0.1",
+    "yaml": "^2.8.1"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dependency-audit",
+    "vulnerability-scanner",
+    "security",
+    "osv",
+    "nvd"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
