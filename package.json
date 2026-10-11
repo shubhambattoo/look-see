@@ -3,6 +3,10 @@
   "version": "0.2.1",
   "description": "Look-See scans locked project dependencies for known vulnerabilities",
   "author": "shubhambattoo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shubhambattoo/look-see.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
