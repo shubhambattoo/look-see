@@ -42,3 +42,31 @@ test('builds JSON findings and takes NVD severity when available', () => {
   assert.match(html, /CVE-2025-1234/);
   assert.match(html, /Upgrade to 1\.0\.1/);
 });
+
+test('labels package-only OSV matches as potential and excludes them from confirmed counts', () => {
+  const pkg = {
+    ecosystem: 'PyPI', name: 'attrs', version: null, specifiers: ['>=21.2.0'],
+    purl: 'pkg:pypi/attrs', direct: true, files: ['requirements.txt'],
+  };
+  const advisory = { id: 'PYSEC-2025-1', summary: 'Example Python advisory', affected: [] };
+  const findings = buildFindings([pkg], new Map([[pkg.purl, [advisory]]]), new Map());
+  assert.equal(findings[0].potentialAdvisories[0].match.status, 'potential');
+  assert.match(findings[0].potentialAdvisories[0].remediation, /resolved version is unknown/i);
+  assert.deepEqual(summarize(findings), {
+    dependencies: 1,
+    vulnerableDependencies: 0,
+    vulnerabilities: 0,
+    potentialDependencies: 1,
+    potentialAdvisories: 1,
+    severityCounts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, UNKNOWN: 0 },
+  });
+
+  const html = renderHtml({
+    project: '/tmp/project', generatedAt: 'now', summary: summarize(findings), packages: findings,
+    coverage: { lockfiles: [], dependencyResolution: 'test', errors: [] },
+  });
+  assert.match(html, /POTENTIAL/);
+  assert.match(html, /attrs@unknown version/);
+  assert.match(html, /&gt;=21\.2\.0/);
+  assert.match(html, /constraints are not cross-checked against OSV affected ranges/i);
+});

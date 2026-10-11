@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { npmParsers } from '../src/discovery/npm.js';
 import { goParser, parseGoMod } from '../src/discovery/go.js';
+import { parseRequirements } from '../src/discovery/python.js';
+import { discoverDependencies } from '../src/discovery/index.js';
 
 test('reads npm v2/v3 lockfile packages and marks top-level dependencies', () => {
   const result = npmParsers.parseNpmPackageLock({
@@ -44,6 +49,80 @@ require (
     { name: 'example.com/indirect', version: 'v2.3.4', direct: false },
     { name: 'example.com/another', version: 'v1.0.0', direct: true },
   ]);
+});
+
+test('parses exact pins, ranges, unpinned requirements, extras, markers, and canonical names', () => {
+  const result = parseRequirements(`
+# generated requirements
+Requests[security]==2.31.0; python_version >= "3.8"
+zope.interface===5.4.0 --hash=sha256:abc
+unlocked>=1.0
+certifi
+legacy=1.2.3
+bounded>=2.0,<=5.0
+`, 'requirements.txt');
+
+  assert.deepEqual(result.packages.map(({ ecosystem, name, version, direct, specifiers }) => ({
+    ecosystem, name, version, direct, specifiers,
+  })), [
+    { ecosystem: 'PyPI', name: 'requests', version: '2.31.0', direct: true, specifiers: ['==2.31.0'] },
+    { ecosystem: 'PyPI', name: 'zope-interface', version: '5.4.0', direct: true, specifiers: ['===5.4.0'] },
+    { ecosystem: 'PyPI', name: 'unlocked', version: null, direct: true, specifiers: ['>=1.0'] },
+    { ecosystem: 'PyPI', name: 'certifi', version: null, direct: true, specifiers: undefined },
+    { ecosystem: 'PyPI', name: 'legacy', version: '1.2.3', direct: true, specifiers: ['=1.2.3'] },
+    { ecosystem: 'PyPI', name: 'bounded', version: null, direct: true, specifiers: ['>=2.0,<=5.0'] },
+  ]);
+  assert.deepEqual(result.errors, []);
+});
+
+test('follows local requirements includes recursively and scans included files once', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'look-see-python-includes-'));
+  try {
+    await fs.mkdir(path.join(root, 'requirements'));
+    await fs.writeFile(path.join(root, 'requirements', 'requirements-all.txt'), [
+      '-r base.txt',
+      '-r nested/dev.txt',
+    ].join('\n'));
+    await fs.writeFile(path.join(root, 'requirements', 'base.txt'), 'requests==2.31.0\n-r nested/shared.txt\n');
+    await fs.mkdir(path.join(root, 'requirements', 'nested'));
+    await fs.writeFile(path.join(root, 'requirements', 'nested', 'dev.txt'), 'pytest==8.1.1\n');
+    await fs.writeFile(path.join(root, 'requirements', 'nested', 'shared.txt'), 'urllib3==2.2.1\n');
+
+    const result = await discoverDependencies(root);
+    assert.deepEqual(result.packages.map(({ purl }) => purl).sort(), [
+      'pkg:pypi/pytest@8.1.1',
+      'pkg:pypi/requests@2.31.0',
+      'pkg:pypi/urllib3@2.2.1',
+    ]);
+    assert.deepEqual(result.lockfiles, [
+      'requirements/base.txt',
+      'requirements/nested/dev.txt',
+      'requirements/nested/shared.txt',
+      'requirements/requirements-all.txt',
+    ]);
+    assert.deepEqual(result.errors, []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('discovers multiple Python requirements files recursively', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'look-see-python-'));
+  try {
+    const nested = path.join(root, 'services', 'api');
+    await fs.mkdir(nested, { recursive: true });
+    await fs.writeFile(path.join(root, 'requirements.txt'), 'Flask==3.0.0\n');
+    await fs.writeFile(path.join(nested, 'requirements-dev.txt'), 'pytest==8.1.1\n');
+    const result = await discoverDependencies(root);
+    assert.deepEqual(result.lockfiles, ['requirements.txt', 'services/api/requirements-dev.txt']);
+    assert.deepEqual(result.packages.map(({ purl }) => purl), [
+      'pkg:pypi/flask@3.0.0',
+      'pkg:pypi/pytest@8.1.1',
+    ]);
+    assert.deepEqual(result.errors, []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 test('parses classic Yarn lock entries', () => {

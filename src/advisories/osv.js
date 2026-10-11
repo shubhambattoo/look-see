@@ -81,7 +81,7 @@ export async function queryOsv(packages, { onProgress } = {}) {
   for (let offset = 0; offset < missing.length; offset += 100) {
     const batch = missing.slice(offset, offset + 100);
     const queries = batch.map((item) => ({
-      version: item.version,
+      ...(item.version != null ? { version: item.version } : {}),
       package: { purl: packagePurlName(item.ecosystem, item.name) },
     }));
     try {

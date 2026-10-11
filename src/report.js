@@ -19,6 +19,8 @@ function formatGeneratedAt(value) {
 function findingMarkup(item, finding) {
   const severity = String(finding.severity?.severity ?? 'UNKNOWN').toUpperCase();
   const score = finding.severity?.score ?? '';
+  const potential = finding.match?.status === 'potential';
+  const version = item.version ?? 'unknown version';
   const refs = finding.references.map((url) => safeLink(url)).filter(Boolean);
   const aliases = [...new Set([finding.id, ...finding.aliases].filter(Boolean))];
   const ranges = finding.affected.flatMap((affected) => affected.ranges.map((range) => {
@@ -29,9 +31,11 @@ function findingMarkup(item, finding) {
     return `${range.type ?? 'version'} (${events.join(', ')})`;
   }));
   return `<article class="finding" data-severity="${escapeHtml(severity)}" data-package="${escapeHtml(item.name)}" data-score="${escapeHtml(score)}">
-    <div class="finding-heading"><span class="badge ${escapeHtml(severity.toLowerCase())}">${escapeHtml(severity)}</span><strong>${escapeHtml(item.name)}@${escapeHtml(item.version)}</strong><span class="ids">${escapeHtml(aliases.join(' · '))}</span></div>
+    <div class="finding-heading">${potential ? '<span class="badge potential" style="background:#8250df">POTENTIAL</span>' : ''}<span class="badge ${escapeHtml(severity.toLowerCase())}">${escapeHtml(severity)}</span><strong>${escapeHtml(item.name)}@${escapeHtml(version)}</strong><span class="ids">${escapeHtml(aliases.join(' · '))}</span></div>
     <p>${escapeHtml(finding.summary)}</p>
     <p class="meta">${escapeHtml(item.purl)} · ${escapeHtml(item.direct ? 'Direct' : 'Transitive / indirect')} · Sources: ${escapeHtml(finding.sources.join(', '))}</p>
+    ${item.specifiers?.length ? `<p><strong>Requirement constraints:</strong> ${escapeHtml(item.specifiers.join(', '))}</p>` : ''}
+    ${potential ? '<p><strong>Potential match only:</strong> OSV has advisories for this package, but the resolved version is unknown. Verify the installed version against the affected range before treating this as vulnerable.</p>' : ''}
     ${ranges.length ? `<p><strong>Affected range:</strong> ${escapeHtml(ranges.join('; '))}</p>` : ''}
     <p><strong>Fix guidance:</strong> ${escapeHtml(finding.remediation)}</p>
     ${finding.details ? `<details><summary>Advisory details</summary><p>${escapeHtml(finding.details)}</p></details>` : ''}
@@ -41,7 +45,10 @@ function findingMarkup(item, finding) {
 
 export function renderHtml(report) {
   const { summary, packages, coverage } = report;
-  const rows = packages.flatMap((item) => item.vulnerabilities.map((finding) => findingMarkup(item, finding)));
+  const rows = packages.flatMap((item) => [
+    ...(item.vulnerabilities ?? []),
+    ...(item.potentialAdvisories ?? []),
+  ].map((finding) => findingMarkup(item, finding)));
   const body = rows.length
     ? rows.join('\n')
     : '<p class="empty">No vulnerabilities were returned for the dependencies scanned. Check scan coverage below before treating this as a clean bill of health.</p>';
@@ -53,7 +60,7 @@ export function renderHtml(report) {
     : '<p>No scan or data-source errors were reported.</p>';
   const lockfiles = coverage.lockfiles.length
     ? `<ul>${coverage.lockfiles.map((file) => `<li><code>${escapeHtml(file)}</code></li>`).join('')}</ul>`
-    : '<p>No supported lockfiles or module files were found.</p>';
+    : '<p>No supported dependency files were found.</p>';
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -65,10 +72,10 @@ export function renderHtml(report) {
 </style></head><body><main>
 <h1>Look-See dependency vulnerability report</h1>
 <p class="muted">Project: <code>${escapeHtml(report.project)}</code> · Generated: ${escapeHtml(formatGeneratedAt(report.generatedAt))}</p>
-<div class="summary"><div class="stat"><strong>${summary.dependencies}</strong>dependencies scanned</div><div class="stat"><strong>${summary.vulnerableDependencies}</strong>with findings</div><div class="stat"><strong>${summary.vulnerabilities}</strong>vulnerabilities</div></div>
-<h2>Severity</h2><ul>${severityRows}</ul>
+ <div class="summary"><div class="stat"><strong>${summary.dependencies}</strong>dependencies scanned</div><div class="stat"><strong>${summary.vulnerableDependencies}</strong>with confirmed findings</div><div class="stat"><strong>${summary.vulnerabilities}</strong>confirmed vulnerabilities</div><div class="stat"><strong>${summary.potentialAdvisories ?? 0}</strong>potential advisory matches</div></div>
+<h2>Confirmed vulnerability severity</h2><ul>${severityRows}</ul>
 <section><h2>Findings</h2><div class="controls"><label>Filter <input id="filter" type="search" placeholder="Package, CVE, or text"></label><label>Severity <select id="severity-filter"><option value="">All severities</option><option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option></select></label><label>Sort <select id="sort"><option value="severity">Severity</option><option value="package">Package</option><option value="score">CVSS score</option></select></label></div><div id="findings">${body}</div></section>
-<section><h2>Scan coverage</h2><p>Advisory matching uses OSV package/version records. NVD records enrich matching CVEs where available. This report does not imply coverage of ecosystems without a supported lockfile parser.</p><p>Dependency resolution: ${escapeHtml(coverage.dependencyResolution)}</p><h3>Files scanned</h3>${lockfiles}<h3>Errors and limitations</h3>${coverageErrors}</section>
+ <section><h2>Scan coverage</h2><p>Advisory matching uses OSV package/version records. Package-only matches are potential advisories: the installed version is unknown, and declared constraints are not cross-checked against OSV affected ranges. NVD records enrich matching CVEs where available. This report does not imply coverage of ecosystems without a supported dependency-file parser.</p><p>Dependency resolution: ${escapeHtml(coverage.dependencyResolution)}</p><h3>Files scanned</h3>${lockfiles}<h3>Errors and limitations</h3>${coverageErrors}</section>
 <footer class="muted"><p>Generated by Look-See. Verify fixes against upstream advisories and rerun the scan.</p></footer>
 </main><script>
 (() => {

@@ -9,7 +9,7 @@ import { buildFindings, summarize } from './analyze.js';
 import { writeReports } from './report.js';
 import { createProgress } from './progress.js';
 
-const HELP = `Look-See - scan locked dependencies for known vulnerabilities
+const HELP = `Look-See - scan project dependencies for known vulnerabilities
 
 Usage: look-see [project-directory] [options]
 
@@ -18,7 +18,7 @@ Options:
   --format <formats>    html,json (default: html,json)
   --no-open             Do not open the HTML report automatically
   --no-nvd              Skip NVD CVE enrichment
-  --fail-on <severity>  Exit with code 1 for this severity or higher
+  --fail-on <severity>  Exit 1 for confirmed findings at this severity or higher
   -h, --help            Show this help
   -v, --version         Show the version
 
@@ -128,7 +128,7 @@ export async function run(args = process.argv.slice(2), io = console) {
   let discovery;
   try {
     discovery = await discoverDependencies(root);
-    progress.complete(`Discovered ${discovery.packages.length} locked dependency version(s) across ${discovery.lockfiles.length} file(s).`);
+    progress.complete(`Discovered ${discovery.packages.length} dependency record(s) across ${discovery.lockfiles.length} file(s).`);
   } catch (error) {
     progress.warn(`Dependency discovery failed: ${error.message}`);
     return 2;
@@ -166,10 +166,10 @@ export async function run(args = process.argv.slice(2), io = console) {
     ...nvd.errors,
   ];
   if (!discovery.lockfiles.length) {
-    errors.push({ source: 'Discovery', message: 'No supported lockfiles were found; no dependencies were checked.' });
+    errors.push({ source: 'Discovery', message: 'No supported dependency files were found; no dependencies were checked.' });
   }
   const report = {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     tool: { name: 'look-see', version: VERSION },
     generatedAt: new Date().toISOString(),
     project: root,
@@ -177,9 +177,9 @@ export async function run(args = process.argv.slice(2), io = console) {
     coverage: {
       lockfiles: discovery.lockfiles,
       packagesScanned: discovery.packages.length,
-      advisoryMatching: 'OSV package and version matching using PURLs',
+      advisoryMatching: 'OSV version matching for exact versions; package-only results are potential advisories when the resolved version is unknown',
       nvdEnrichment: options.nvd ? 'NVD CVE enrichment for OSV advisories with CVE aliases' : 'disabled by --no-nvd',
-      dependencyResolution: 'npm lockfiles provide resolved dependency versions; Go scans go.mod requirements without resolving the full module graph or applying replace directives.',
+      dependencyResolution: 'npm lockfiles provide resolved versions; Go scans go.mod requirements without resolving the full module graph or applying replace directives; Python requirements*.txt files use exact pins when available and otherwise query OSV package-wide as potential matches. Local -r includes are followed; environment markers are not evaluated.',
       errors,
     },
     packages,
@@ -195,7 +195,7 @@ export async function run(args = process.argv.slice(2), io = console) {
   }
   progress.complete('Reports written.');
   for (const [format, file] of Object.entries(written)) progress.note(`${format.toUpperCase()} report: ${file}`);
-  progress.complete(`Scan complete: ${summary.vulnerabilities} finding(s) in ${summary.vulnerableDependencies} dependency version(s).`);
+  progress.complete(`Scan complete: ${summary.vulnerabilities} confirmed finding(s) in ${summary.vulnerableDependencies} dependency version(s), plus ${summary.potentialAdvisories} potential advisory match(es).`);
   if (errors.length) progress.warn(`${errors.length} scan/data-source issue(s); review coverage.errors in the JSON report.`);
 
   if (options.open && written.html) {
@@ -205,7 +205,7 @@ export async function run(args = process.argv.slice(2), io = console) {
 
   if (options.failOn) {
     const threshold = SEVERITY_RANK[options.failOn];
-    if (packages.some((item) => item.vulnerabilities.some((finding) =>
+    if (packages.some((item) => item.vulnerabilities.some((finding) => finding.match?.status !== 'potential' &&
       SEVERITY_RANK[String(finding.severity?.severity ?? 'UNKNOWN').toUpperCase()] >= threshold))) return 1;
   }
   if (discovery.errors.length || osv.errors.length || !discovery.lockfiles.length) return 2;

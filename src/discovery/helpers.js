@@ -25,22 +25,27 @@ export function packageNameFromNodeModulesPath(packagePath) {
     : remainder[0];
 }
 
-export function addPackage(packages, { ecosystem, name, version, direct = false, file }) {
-  if (!name || !version || typeof name !== 'string' || typeof version !== 'string') return;
-  const key = `${ecosystem}\0${name}\0${version}`;
+export function addPackage(packages, { ecosystem, name, version, direct = false, file, specifier }) {
+  if (!name || typeof name !== 'string' || (version != null && typeof version !== 'string')) return;
+  const normalizedVersion = version ?? null;
+  const key = `${ecosystem}\0${name}\0${normalizedVersion ?? ''}`;
   const current = packages.get(key) ?? {
     ecosystem,
     name,
-    version,
+    version: normalizedVersion,
     direct: false,
     files: [],
   };
   current.direct ||= direct;
   if (file && !current.files.includes(file)) current.files.push(file);
+  if (specifier) {
+    current.specifiers ??= [];
+    if (!current.specifiers.includes(specifier)) current.specifiers.push(specifier);
+  }
   packages.set(key, current);
 }
 
-export async function findFiles(root, wantedNames) {
+export async function findFiles(root, wantedNames, matchesName = () => false) {
   const found = [];
   const ignored = new Set([
     '.git', '.hg', '.svn', 'node_modules', 'vendor', 'dist', 'build',
@@ -59,7 +64,7 @@ export async function findFiles(root, wantedNames) {
       const fullPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         if (!ignored.has(entry.name)) await visit(fullPath);
-      } else if (entry.isFile() && wantedNames.has(entry.name)) {
+      } else if (entry.isFile() && (wantedNames.has(entry.name) || matchesName(entry.name))) {
         found.push(fullPath);
       }
     }

@@ -69,6 +69,7 @@ function guidance(versions) {
 
 export function buildFindings(packages, osvByPackage, nvdByCve) {
   return packages.map((item) => {
+    const isPotential = item.version == null;
     const vulnerabilities = osvByPackage.get(item.purl) ?? [];
     const findings = vulnerabilities.map((vulnerability) => {
       const cveId = [vulnerability.id, ...(vulnerability.aliases ?? [])]
@@ -79,7 +80,12 @@ export function buildFindings(packages, osvByPackage, nvdByCve) {
         id: vulnerability.id,
         aliases: vulnerability.aliases ?? [],
         cveId,
-        match: { type: 'package-version', confidence: 'high', source: 'OSV' },
+        match: {
+          type: isPotential ? 'package' : 'package-version',
+          confidence: isPotential ? 'low' : 'high',
+          status: isPotential ? 'potential' : 'confirmed',
+          source: 'OSV',
+        },
         summary: vulnerability.summary ?? nvd?.description ?? vulnerability.id,
         details: vulnerability.details ?? null,
         severity: severityOf(vulnerability, nvd),
@@ -91,28 +97,37 @@ export function buildFindings(packages, osvByPackage, nvdByCve) {
           versions: affected.versions ?? [],
         })),
         fixedVersions: fixes,
-        remediation: guidance(fixes),
+        remediation: isPotential
+          ? 'The resolved version is unknown. Check whether the installed version is in the affected range before applying a fix.'
+          : guidance(fixes),
         references: advisoryReferences(vulnerability, nvd),
         sources: [...new Set(['OSV', ...(nvd ? ['NVD'] : [])])],
         nvd,
       };
     });
-    return { ...item, vulnerabilities: findings };
+    return {
+      ...item,
+      vulnerabilities: findings.filter((finding) => finding.match.status !== 'potential'),
+      potentialAdvisories: findings.filter((finding) => finding.match.status === 'potential'),
+    };
   });
 }
 
 export function summarize(packages) {
-  const findings = packages.flatMap((item) => item.vulnerabilities);
+  const confirmed = packages.flatMap((item) => item.vulnerabilities ?? []);
+  const potential = packages.flatMap((item) => item.potentialAdvisories ?? []);
   const severities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
   const counts = Object.fromEntries(severities.map((severity) => [severity, 0]));
-  for (const finding of findings) {
+  for (const finding of confirmed) {
     const severity = String(finding.severity?.severity ?? 'UNKNOWN').toUpperCase();
     counts[Object.hasOwn(counts, severity) ? severity : 'UNKNOWN'] += 1;
   }
   return {
     dependencies: packages.length,
-    vulnerableDependencies: packages.filter((item) => item.vulnerabilities.length).length,
-    vulnerabilities: findings.length,
+    vulnerableDependencies: packages.filter((item) => item.vulnerabilities?.length).length,
+    vulnerabilities: confirmed.length,
+    potentialDependencies: packages.filter((item) => item.potentialAdvisories?.length).length,
+    potentialAdvisories: potential.length,
     severityCounts: counts,
   };
 }

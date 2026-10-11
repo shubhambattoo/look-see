@@ -23,7 +23,7 @@ test('parses report and threshold options', () => {
   assert.throws(() => cliHelpers.parseArgs(['--fail-on', 'urgent']), /--fail-on/);
 });
 
-test('reports a missing supported lockfile as incomplete and exits non-zero', async () => {
+test('reports missing supported dependency files as incomplete and exits non-zero', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'look-see-empty-'));
   try {
     const output = path.join(root, 'reports');
@@ -33,7 +33,7 @@ test('reports a missing supported lockfile as incomplete and exits non-zero', as
     const report = JSON.parse(await fs.readFile(path.join(output, 'look-see-output.json'), 'utf8'));
     assert.equal(exitCode, 2);
     assert.equal(report.summary.dependencies, 0);
-    assert.match(report.coverage.errors[0].message, /No supported lockfiles/);
+    assert.match(report.coverage.errors[0].message, /No supported dependency files/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
