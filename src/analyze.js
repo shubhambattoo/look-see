@@ -51,6 +51,11 @@ function advisoryReferences(vulnerability, nvd) {
 function severityOf(vulnerability, nvd) {
   const nvdSeverity = nvd?.severity;
   if (nvdSeverity?.severity) return { ...nvdSeverity, source: 'NVD' };
+  if (vulnerability.cveNow?.severity?.score != null) {
+    const score = vulnerability.cveNow.severity.score;
+    const severity = score >= 9 ? 'CRITICAL' : score >= 7 ? 'HIGH' : score >= 4 ? 'MEDIUM' : 'LOW';
+    return { severity, score, vector: vulnerability.cveNow.severity.vector, source: 'cve.now' };
+  }
   const databaseSeverity = vulnerability.database_specific?.severity;
   if (databaseSeverity) {
     const raw = String(databaseSeverity).toUpperCase();
@@ -84,7 +89,7 @@ export function buildFindings(packages, osvByPackage, nvdByCve) {
           type: isPotential ? 'package' : 'package-version',
           confidence: isPotential ? 'low' : 'high',
           status: isPotential ? 'potential' : 'confirmed',
-          source: 'OSV',
+          source: (vulnerability.matchSources ?? ['OSV']).join(', '),
         },
         summary: vulnerability.summary ?? nvd?.description ?? vulnerability.id,
         details: vulnerability.details ?? null,
@@ -101,8 +106,9 @@ export function buildFindings(packages, osvByPackage, nvdByCve) {
           ? 'The resolved version is unknown. Check whether the installed version is in the affected range before applying a fix.'
           : guidance(fixes),
         references: advisoryReferences(vulnerability, nvd),
-        sources: [...new Set(['OSV', ...(nvd ? ['NVD'] : [])])],
+        sources: [...new Set([...(vulnerability.matchSources ?? ['OSV']), ...(nvd ? ['NVD'] : [])])],
         nvd,
+        ...(vulnerability.cveNow ? { cveNow: vulnerability.cveNow } : {}),
       };
     });
     return {

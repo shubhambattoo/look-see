@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import packageJson from '../package.json' with { type: 'json' };
 import { discoverDependencies } from './discovery/index.js';
 import { queryOsv } from './advisories/osv.js';
+import { normalizeCveNowEntry, queryCveNow } from './advisories/cve-now.js';
 import { nvdHelpers, queryNvd } from './advisories/nvd.js';
 import { buildFindings, summarize } from './analyze.js';
 import { writeReports } from './report.js';
@@ -93,6 +94,32 @@ function allOsvVulnerabilities(byPackage) {
   return [...byPackage.values()].flat();
 }
 
+function mergeCveNow(osvByPackage, cveNowByPackage, packages) {
+  const ecosystemNames = { npm: 'npm', Go: 'go', PyPI: 'pypi' };
+  for (const item of packages) {
+    const existing = osvByPackage.get(item.purl) ?? [];
+    const additions = (cveNowByPackage.get(item.purl) ?? []).map((entry) =>
+      normalizeCveNowEntry(entry, ecosystemNames[item.ecosystem], item.name));
+    for (const addition of additions) {
+      const identifiers = new Set([addition.id, ...(addition.aliases ?? [])].filter(Boolean).map((id) => id.toUpperCase()));
+      const index = existing.findIndex((vulnerability) =>
+        [vulnerability.id, ...(vulnerability.aliases ?? [])]
+          .some((id) => identifiers.has(String(id).toUpperCase())));
+      if (index < 0) {
+        existing.push(addition);
+      } else {
+        existing[index] = {
+          ...existing[index],
+          matchSources: [...new Set([...(existing[index].matchSources ?? ['OSV']), 'cve.now'])],
+          cveNow: addition.cveNow,
+          references: [...(existing[index].references ?? []), ...addition.references],
+        };
+      }
+    }
+    osvByPackage.set(item.purl, existing);
+  }
+}
+
 export async function run(args = process.argv.slice(2), io = console) {
   let options;
   try {
@@ -142,8 +169,16 @@ export async function run(args = process.argv.slice(2), io = console) {
       if (stage === 'advisories' && total > 0) progress.update(`Loading advisory details: ${completed}/${total}`);
     },
   });
+  progress.start(`Checking ${discovery.packages.length} resolved package(s) against cve.now`);
+  const cveNow = await queryCveNow(discovery.packages, {
+    onProgress: ({ completed, total }) => {
+      if (total > 0) progress.update(`cve.now exact package checks: ${completed}/${total}`);
+    },
+  });
+  mergeCveNow(osv.byPackage, cveNow.byPackage, discovery.packages);
+  progress.complete(`cve.now checks complete: ${[...cveNow.byPackage.values()].reduce((count, entries) => count + entries.length, 0)} matching advisory record(s).`);
   const osvVulnerabilities = allOsvVulnerabilities(osv.byPackage);
-  progress.complete(`OSV checks complete: ${osvVulnerabilities.length} advisory finding(s).`);
+  progress.complete(`Advisory matching complete: ${osvVulnerabilities.length} finding(s) across OSV and cve.now.`);
 
   const cveIds = nvdHelpers.cveIdsFrom(osvVulnerabilities);
   let nvd = { byCve: new Map(), errors: [] };
@@ -164,13 +199,14 @@ export async function run(args = process.argv.slice(2), io = console) {
   const errors = [
     ...discovery.errors.map((error) => ({ source: 'Discovery', ...error })),
     ...osv.errors,
+    ...cveNow.errors,
     ...nvd.errors,
   ];
   if (!discovery.lockfiles.length) {
     errors.push({ source: 'Discovery', message: 'No supported dependency files were found; no dependencies were checked.' });
   }
   const report = {
-    schemaVersion: '1.1.0',
+    schemaVersion: '1.2.0',
     tool: { name: 'look-see', version: VERSION },
     generatedAt: new Date().toISOString(),
     project: root,
@@ -178,8 +214,9 @@ export async function run(args = process.argv.slice(2), io = console) {
     coverage: {
       lockfiles: discovery.lockfiles,
       packagesScanned: discovery.packages.length,
-      advisoryMatching: 'OSV version matching for exact versions; package-only results are potential advisories when the resolved version is unknown',
-      nvdEnrichment: options.nvd ? 'NVD CVE enrichment for OSV advisories with CVE aliases' : 'disabled by --no-nvd',
+      advisoryMatching: 'OSV package/version matching and cve.now exact stack matching for resolved npm, Go and PyPI packages; package-only OSV results are potential advisories when the resolved version is unknown',
+      cveNowMatching: 'cve.now exact stack endpoint for resolved npm, Go and PyPI package versions; package names and versions are sent individually and responses are cached for 15 minutes',
+      nvdEnrichment: options.nvd ? 'NVD CVE enrichment for findings with CVE aliases' : 'disabled by --no-nvd',
       dependencyResolution: 'npm lockfiles provide resolved versions; Go scans go.mod requirements without resolving the full module graph or applying replace directives; Python requirements*.txt files use exact pins when available and otherwise query OSV package-wide as potential matches. Local -r includes are followed; environment markers are not evaluated.',
       errors,
     },

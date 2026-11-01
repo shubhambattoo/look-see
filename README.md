@@ -1,6 +1,6 @@
 # Look-See
 
-Look-See is a Node.js CLI that scans supported dependency files, identifies packages with PURLs, checks exact package versions against OSV, and reports potential OSV advisories when only a package name is known. It enriches matching CVEs with NVD data, writes JSON and HTML reports, and opens the HTML report by default.
+Look-See is a Node.js CLI that scans supported dependency files, identifies packages with PURLs, checks exact package versions against OSV and cve.now, and reports potential OSV advisories when only a package name is known. It enriches matching CVEs with NVD data, writes JSON and HTML reports, and opens the HTML report by default.
 
 > Early MVP: npm lockfiles, Go `go.mod` requirements, and pinned Python `requirements.txt` entries are supported. Automated dependency fixes are not implemented yet.
 
@@ -51,13 +51,13 @@ Set `NVD_API_KEY` for higher NVD API request limits. Advisory responses are cach
 
 ## Matching and coverage
 
-Each discovered dependency is represented by a Package URL, with a version included when known. OSV is queried using the package identity and exact version when available, which provides ecosystem-aware matching. Matching CVE IDs are then looked up in NVD for CVSS and reference enrichment. NVD is not used as a fuzzy package-name search: its CPE records do not reliably map to every package-manager coordinate.
+Each discovered dependency is represented by a Package URL, with a version included when known. OSV is queried using the package identity and exact version when available. Resolved npm, Go and PyPI package versions are also checked against cve.now's exact stack endpoint, which can add recent merged advisories and exploitation signals. Package names and versions are sent to both advisory services; cve.now responses are cached for 15 minutes. Matching CVE IDs are looked up in NVD for CVSS and reference enrichment. NVD is not used as a fuzzy package-name search: its CPE records do not reliably map to every package-manager coordinate.
 
 The npm lockfile parsers report resolved versions, including transitive packages. Go scanning currently reads requirements from `go.mod`; it does not run `go list`, resolve the complete selected/transitive module graph, or apply `replace` directives. Python scanning recognizes exact `==`, `===`, and `=` pins in `requirements.txt` and `requirements-*.txt` files and follows local `-r` includes recursively. For ranged or unpinned requirements it queries OSV package-wide and reports any results as potential advisories, since the resolved version is unknown. These package-only results are not cross-checked against declared constraints, so they may include advisories outside a requirement's range. Environment markers are not evaluated. Review coverage and verify potential advisories against the installed version before interpreting findings.
 
-JSON report schema `1.1.0` separates confirmed version matches from package-only potential advisories. Potential results do not count as confirmed vulnerabilities and do not trigger `--fail-on`.
+JSON report schema `1.2.0` separates confirmed version matches from package-only potential advisories. Findings include their matching sources, and cve.now matched findings include exploitation signals when available. Potential results do not count as confirmed vulnerabilities and do not trigger `--fail-on`.
 
-NVD may rate-limit unauthenticated lookups. Enrichment errors are included in both reports; OSV matching results remain available if NVD is unavailable. The CLI does not modify project files.
+NVD may rate-limit unauthenticated lookups. Errors from any advisory source are included in both reports; results from the other sources remain available when one is unavailable. The CLI does not modify project files.
 
 ## Development
 
@@ -65,3 +65,5 @@ NVD may rate-limit unauthenticated lookups. Enrichment errors are included in bo
 npm install
 npm test
 ```
+
+For setup, automated test coverage, and a local end-to-end smoke scan, see [LOCAL_TESTING.md](LOCAL_TESTING.md).
