@@ -1,6 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+export function toPortablePath(filePath) {
+  return filePath.replaceAll('\\', '/');
+}
+
 export async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, 'utf8'));
 }

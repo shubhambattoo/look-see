@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { addPackage } from './helpers.js';
+import { addPackage, toPortablePath } from './helpers.js';
 
 export function normalizePythonName(name) {
   return name.toLowerCase().replace(/[._-]+/g, '-');
@@ -110,7 +110,7 @@ export async function scanRequirements(requirementPaths, root) {
       for (const item of result.packages) addPackage(packages, item);
       errors.push(...result.errors);
       for (const include of result.includes) {
-        if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(include.file)) {
+        if (/^(?:[a-z][a-z\d+.-]*:|\/|[a-z]:[\\/])/i.test(include.file) || include.file.startsWith('\\')) {
           errors.push({
             file: absoluteFile,
             line: include.line,
@@ -118,7 +118,8 @@ export async function scanRequirements(requirementPaths, root) {
           });
           continue;
         }
-        const includedFile = path.resolve(path.dirname(absoluteFile), include.file);
+        const localInclude = include.file.replace(/[\\/]/g, path.sep);
+        const includedFile = path.resolve(path.dirname(absoluteFile), localInclude);
         const relative = path.relative(rootPath, includedFile);
         if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
           errors.push({
@@ -138,7 +139,7 @@ export async function scanRequirements(requirementPaths, root) {
         file: from?.file ?? absoluteFile,
         ...(from ? { line: from.line } : {}),
         message: from
-          ? `Could not read included requirements file ${path.relative(rootPath, absoluteFile)}: ${error.message}`
+          ? `Could not read included requirements file ${toPortablePath(path.relative(rootPath, absoluteFile))}: ${error.message}`
           : error.message,
       });
     }

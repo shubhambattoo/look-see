@@ -81,7 +81,7 @@ test('follows local requirements includes recursively and scans included files o
     await fs.mkdir(path.join(root, 'requirements'));
     await fs.writeFile(path.join(root, 'requirements', 'requirements-all.txt'), [
       '-r base.txt',
-      '-r nested/dev.txt',
+      '-r nested\\dev.txt',
     ].join('\n'));
     await fs.writeFile(path.join(root, 'requirements', 'base.txt'), 'requests==2.31.0\n-r nested/shared.txt\n');
     await fs.mkdir(path.join(root, 'requirements', 'nested'));

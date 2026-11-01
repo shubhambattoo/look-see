@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import packageJson from '../package.json' with { type: 'json' };
 import { discoverDependencies } from './discovery/index.js';
 import { queryOsv } from './advisories/osv.js';
 import { nvdHelpers, queryNvd } from './advisories/nvd.js';
@@ -26,7 +27,7 @@ Environment:
   NVD_API_KEY           Optional NVD API key for higher request limits
   LOOK_SEE_CACHE_DIR    Override the local advisory cache directory`;
 
-const VERSION = '0.2.1';
+const VERSION = packageJson.version;
 const SEVERITY_RANK = { UNKNOWN: 0, LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
 
 function parseArgs(args) {
